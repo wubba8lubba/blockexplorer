@@ -1,5 +1,6 @@
 .App {
   text-align: center;
+  user-select: none;
 }
 
 .App-logo {
@@ -35,4 +36,12 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+.expandable {
+  cursor: pointer;
+}
+
+.non-selectable {
+  user-select: none;
 }

@@ -21,7 +21,7 @@ function App() {
     if (!interval) {
       interval = setInterval(() => {
         fetchCurrentBlockNumber();
-      }, 12000);
+      }, 180000);
     }
   }
 
@@ -37,6 +37,7 @@ function App() {
       setIsLoading(true);
       const blockNumber = await alchemy.core.getBlockNumber();
       setBlockNumber(blockNumber);
+      setIsLoading(false);
     } catch (error) {
       console.error("Failed to fetch block number:", error);
     }
@@ -44,16 +45,49 @@ function App() {
 
   async function fetchPageBlocks() {
     if (currentBlockNumber) {
+      setIsLoading(true);
       let blocks = [];
       let startBlockCount = currentPage * 10 - 10;
       let endBlockCount = currentPage * 10;
       for (let i = startBlockCount; i < endBlockCount; i++) {
-        const block = await alchemy.core.getBlock(currentBlockNumber - i);
-        blocks.push(block);
+        try {
+          const block = await alchemy.core.getBlockWithTransactions(
+            currentBlockNumber - i,
+            true
+          );
+          block.isExpanded = false;
+          block.transactions = block.transactions.map((tx) => ({
+            ...tx,
+            gasPrice: tx.gasPrice ? tx.gasPrice.toString() : "N/A",
+            maxPriorityFeePerGas: tx.maxPriorityFeePerGas
+              ? tx.maxPriorityFeePerGas.toString()
+              : "N/A",
+            maxFeePerGas: tx.maxFeePerGas ? tx.maxFeePerGas.toString() : "N/A",
+            gasLimit: tx.gasLimit ? tx.gasLimit.toString() : "N/A",
+            value: tx.value ? tx.value.toString() : "N/A",
+            isExpanded: false,
+          }));
+          blocks.push(block);
+        } catch (error) {
+          console.error("Error fetching block data:", error);
+        }
       }
       setCurrentPageBlocks(blocks);
       setIsLoading(false);
     }
+  }
+
+  function toggleBlockExpand(index) {
+    const newBlocks = [...currentPageBlocks];
+    newBlocks[index].isExpanded = !newBlocks[index].isExpanded;
+    setCurrentPageBlocks(newBlocks);
+  }
+
+  function toggleTransactionExpand(blockIndex, txIndex) {
+    const newBlocks = [...currentPageBlocks];
+    newBlocks[blockIndex].transactions[txIndex].isExpanded =
+      !newBlocks[blockIndex].transactions[txIndex].isExpanded;
+    setCurrentPageBlocks(newBlocks);
   }
 
   function nextPage() {
@@ -63,6 +97,7 @@ function App() {
     if (newPage <= maxPage) {
       setCurrentPage(newPage);
     }
+    setIsLoading(false);
   }
 
   function previousPage() {
@@ -71,12 +106,13 @@ function App() {
     if (newPage > 0) {
       setCurrentPage(newPage);
     }
+    setIsLoading(false);
   }
 
   useEffect(() => {
     fetchCurrentBlockNumber();
     startCurrentBlockNumberPolling();
-    return stopCurrentBlockNumberPolling;
+    return () => stopCurrentBlockNumberPolling();
   }, []);
 
   useEffect(() => {
@@ -91,7 +127,7 @@ function App() {
   }, [currentBlockNumber, currentPage]);
 
   return (
-    <div className="App">
+    <div className="App non-selectable">
       <button onClick={previousPage} disabled={isLoading || currentPage === 1}>
         Previous
       </button>
@@ -108,14 +144,45 @@ function App() {
         {isLoading ? (
           <h2>Loading...</h2>
         ) : (
-          currentPageBlocks.map((block, index) => (
-            <div key={index}>
-              <h2>Block Number: {block.number}</h2>
-              <p>Hash: {block.hash}</p>
-              <p>Parent Hash: {block.parentHash}</p>
-              <p>Timestamp: {block.timestamp}</p>
-              <p>Transactions: {block.transactions.length}</p>
-              {index < currentPageBlocks.length - 1 && <hr />}
+          currentPageBlocks.map((block, blockIndex) => (
+            <div
+              key={blockIndex}
+              className="expandable"
+              onClick={() => toggleBlockExpand(blockIndex)}
+            >
+              <h2>Block Number: {block.number} (Click to expand)</h2>
+              {block.isExpanded && (
+                <div>
+                  <p>Hash: {block.hash}</p>
+                  <p>Parent Hash: {block.parentHash}</p>
+                  <p>
+                    Timestamp:{" "}
+                    {new Date(block.timestamp * 1000).toLocaleString()}
+                  </p>
+                  <p>Transactions: {block.transactions.length}</p>
+                  {block.transactions.map((tx, txIndex) => (
+                    <div
+                      key={txIndex}
+                      className="expandable"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleTransactionExpand(blockIndex, txIndex);
+                      }}
+                    >
+                      <p>Transaction Hash: {`${tx.hash.substring(0,16)}...`} (Click to expand)</p>
+                      {tx.isExpanded && (
+                        <div>
+                          <p>From: {tx.from}</p>
+                          <p>To: {tx.to}</p>
+                          <p>Value: {tx.value} wei</p>
+                          <p>Gas: {tx.gasLimit}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {blockIndex < currentPageBlocks.length - 1 && <hr />}
             </div>
           ))
         )}
